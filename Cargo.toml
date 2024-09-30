@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1"
 primitive = { git = "https://github.com/Banyc/primitive.git", tag = "v0.0.15" }
+ureq = "2"
