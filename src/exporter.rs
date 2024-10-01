@@ -1,8 +1,13 @@
 use std::io::{self, Write};
 
 use crate::{
+    codec::{
+        decode_key, decode_sample, decode_sample_count, encode_key, encode_sample,
+        encode_sample_count,
+    },
+    consumer::MetricConsumer,
     dump::{MetricQueueReaders, QUEUE_SIZE},
-    MetricKey, Sample,
+    SAMPLE_SIZE,
 };
 
 #[derive(Debug)]
@@ -29,33 +34,76 @@ impl HttpExporter {
             self.buf.clear();
             let mut wtr = io::Cursor::new(&mut self.buf);
             encode_key(&mut wtr, key);
-            let sample_count_ptr = usize::try_from(wtr.position()).unwrap();
+            let sample_count_pos = wtr.position();
             let mut sample_count: u16 = 0;
-            wtr.write_all(&sample_count.to_be_bytes()).unwrap();
+            wtr.write_all(&encode_sample_count(sample_count)).unwrap();
             for _ in 0..QUEUE_SIZE {
                 let Some(sample) = reader.pop() else {
                     break;
                 };
                 sample_count += 1;
-                encode_sample(&mut wtr, sample);
+                let sample = encode_sample(sample);
+                wtr.write_all(&sample).unwrap();
             }
             if sample_count == 0 {
                 continue;
             }
-            self.buf[sample_count_ptr..sample_count_ptr + core::mem::size_of::<u16>()]
-                .copy_from_slice(&sample_count.to_be_bytes());
+            wtr.set_position(sample_count_pos);
+            wtr.write_all(&encode_sample_count(sample_count)).unwrap();
             let _resp = self.client.post(&self.url).send_bytes(&self.buf)?;
         }
         Ok(())
     }
 }
 
-fn encode_key(wtr: &mut impl io::Write, key: &MetricKey) {
-    let len = u16::try_from(key.len()).unwrap();
-    wtr.write_all(&len.to_be_bytes()).unwrap();
-    wtr.write_all(key.as_bytes()).unwrap();
+pub async fn decode_copy<R>(
+    rdr: &mut R,
+    consumer: &mut MetricConsumer,
+    key_buf: &mut String,
+) -> io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    key_buf.clear();
+    decode_key(rdr, key_buf).await?;
+    let mut sample_count = [0; 2];
+    rdr.read_exact(&mut sample_count).await?;
+    let sample_count = decode_sample_count(sample_count);
+    let mut queue = consumer.push(key_buf);
+    for _ in 0..sample_count {
+        let mut sample = [0; SAMPLE_SIZE];
+        rdr.read_exact(&mut sample).await?;
+        let sample = decode_sample(sample);
+        queue(sample);
+    }
+    Ok(())
 }
-fn encode_sample(wtr: &mut impl io::Write, sample: Sample) {
-    wtr.write_all(&sample.time.to_be_bytes()).unwrap();
-    wtr.write_all(&sample.value.to_be_bytes()).unwrap();
+
+#[derive(Debug)]
+pub struct InMemExporter {
+    readers: MetricQueueReaders,
+    consumer: MetricConsumer,
+}
+impl InMemExporter {
+    pub fn new(readers: MetricQueueReaders, queue_size: usize) -> Self {
+        let consumer = MetricConsumer::new(queue_size);
+        Self { readers, consumer }
+    }
+
+    pub fn consumer(&self) -> &MetricConsumer {
+        &self.consumer
+    }
+    pub async fn flush(&mut self) {
+        for (key, reader) in self.readers.readers_mut() {
+            let mut queue = self.consumer.push(key);
+            for _ in 0..QUEUE_SIZE {
+                let Some(sample) = reader.pop() else {
+                    break;
+                };
+                queue(sample);
+            }
+            tokio::task::yield_now().await;
+        }
+    }
 }

@@ -1,10 +1,14 @@
+pub mod codec;
+pub mod consumer;
 pub mod dump;
 pub mod exporter;
 
-type MetricKey = String;
+pub type MetricKey = String;
+pub type Time = u64;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Sample {
-    pub time: u64,
+    pub time: Time,
     pub value: f64,
 }
+const SAMPLE_SIZE: usize = core::mem::size_of::<Sample>();
