@@ -89,11 +89,11 @@ where
 }
 
 #[derive(Debug)]
-pub struct InMemExporter {
+pub struct InProcessExporter {
     readers: MetricBufReaders,
     consumer: MetricConsumer,
 }
-impl InMemExporter {
+impl InProcessExporter {
     pub fn new(readers: MetricBufReaders, queue_size: usize) -> Self {
         let consumer = MetricConsumer::new(queue_size);
         Self { readers, consumer }
