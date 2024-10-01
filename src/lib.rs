@@ -1,6 +1,6 @@
+pub mod buf;
 pub mod codec;
 pub mod consumer;
-pub mod dump;
 pub mod exporter;
 
 pub type MetricKey = String;

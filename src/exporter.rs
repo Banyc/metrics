@@ -1,24 +1,24 @@
 use std::io::{self, Write};
 
 use crate::{
+    buf::{MetricBufReaders, BUF_SIZE},
     codec::{
         decode_key, decode_sample, decode_sample_count, encode_key, encode_sample,
         encode_sample_count,
     },
     consumer::MetricConsumer,
-    dump::{MetricQueueReaders, QUEUE_SIZE},
     SAMPLE_SIZE,
 };
 
 #[derive(Debug)]
 pub struct HttpExporter {
-    readers: MetricQueueReaders,
+    readers: MetricBufReaders,
     client: ureq::Agent,
     url: String,
     buf: Vec<u8>,
 }
 impl HttpExporter {
-    pub fn new(readers: MetricQueueReaders, url: String) -> Self {
+    pub fn new(readers: MetricBufReaders, url: String) -> Self {
         let buf = vec![];
         let client = ureq::Agent::new();
         Self {
@@ -37,7 +37,7 @@ impl HttpExporter {
             let sample_count_pos = wtr.position();
             let mut sample_count: u16 = 0;
             wtr.write_all(&encode_sample_count(sample_count)).unwrap();
-            for _ in 0..QUEUE_SIZE {
+            for _ in 0..BUF_SIZE {
                 let Some(sample) = reader.pop() else {
                     break;
                 };
@@ -82,11 +82,11 @@ where
 
 #[derive(Debug)]
 pub struct InMemExporter {
-    readers: MetricQueueReaders,
+    readers: MetricBufReaders,
     consumer: MetricConsumer,
 }
 impl InMemExporter {
-    pub fn new(readers: MetricQueueReaders, queue_size: usize) -> Self {
+    pub fn new(readers: MetricBufReaders, queue_size: usize) -> Self {
         let consumer = MetricConsumer::new(queue_size);
         Self { readers, consumer }
     }
@@ -97,7 +97,7 @@ impl InMemExporter {
     pub async fn flush(&mut self) {
         for (key, reader) in self.readers.readers_mut() {
             let mut queue = self.consumer.push(key);
-            for _ in 0..QUEUE_SIZE {
+            for _ in 0..BUF_SIZE {
                 let Some(sample) = reader.pop() else {
                     break;
                 };
