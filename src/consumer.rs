@@ -94,13 +94,13 @@ impl MetricQueue {
             }
             let end = range.end_bound();
             if end != core::ops::Bound::Unbounded {
-                let pos = slice.iter().position(|sample| match end {
+                let pos = slice.iter().rev().position(|sample| match end {
                     std::ops::Bound::Included(&end) => sample.time <= end,
                     std::ops::Bound::Excluded(&end) => sample.time < end,
                     std::ops::Bound::Unbounded => todo!(),
                 });
                 if let Some(pos) = pos {
-                    *slice = &slice[..pos];
+                    *slice = &slice[..slice.len() - pos];
                 }
             }
         }
@@ -130,7 +130,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
-    /// <http://127.0.0.1:3000/?keys=a>
+    /// <http://127.0.0.1:3000/?keys=a&start=0&end=15>
     async fn test_web() {
         let mut consumer = MetricConsumer::new(1024);
         let key = String::from("a");
@@ -153,7 +153,18 @@ mod tests {
                 match msg {
                     ConsumerMessage::Chart(query, resp) => {
                         let keys = query.keys.split(',');
-                        let html = consumer.scatter_chart_html(keys, .., None).await;
+                        let html = match (query.start, query.end) {
+                            (None, None) => consumer.scatter_chart_html(keys, .., None).await,
+                            (Some(start), None) => {
+                                consumer.scatter_chart_html(keys, start.., None).await
+                            }
+                            (Some(start), Some(end)) => {
+                                consumer.scatter_chart_html(keys, start..=end, None).await
+                            }
+                            (None, Some(end)) => {
+                                consumer.scatter_chart_html(keys, ..=end, None).await
+                            }
+                        };
                         resp.send(html).unwrap();
                     }
                 }
@@ -168,6 +179,8 @@ mod tests {
         #[derive(Deserialize)]
         struct ChartQuery {
             pub keys: String,
+            pub start: Option<Time>,
+            pub end: Option<Time>,
         }
 
         #[handler]
@@ -178,9 +191,9 @@ mod tests {
             let chart = rx.await.unwrap();
             let chart = danger(chart);
             let math_jax = "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js";
-            let math_jax = script(()).attr("src", math_jax);
+            let math_jax = script(()).src(math_jax);
             let plotly = "https://cdn.plot.ly/plotly-2.12.1.min.js";
-            let plotly = script(()).attr("src", plotly);
+            let plotly = script(()).src(plotly);
             let scripts = (math_jax, plotly);
             let root_div = div((scripts, chart));
             let body = hyped::body(root_div);
