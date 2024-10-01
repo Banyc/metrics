@@ -60,8 +60,10 @@ pub fn encode_frame(
     if sample_count == 0 {
         return false;
     }
+    let curr_pos = wtr.position();
     wtr.set_position(sample_count_pos);
     wtr.write_all(&encode_sample_count(sample_count)).unwrap();
+    wtr.set_position(curr_pos);
     true
 }
 pub async fn decode_frame_copy<R>(
