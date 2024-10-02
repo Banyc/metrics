@@ -30,15 +30,7 @@ async fn main() {
     let swap_total_metrics = metric_buf_readers.new_metrics("swap.total".into());
     let swap_free_metrics = metric_buf_readers.new_metrics("swap.free".into());
     std::thread::spawn(move || {
-        let now = || {
-            u64::try_from(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis(),
-            )
-            .unwrap()
-        };
+        let now = || system_time_timestamp(SystemTime::now());
         let mut sys = sysinfo::System::new_all();
         loop {
             std::thread::sleep(Duration::from_secs(1));
@@ -122,7 +114,9 @@ async fn main() {
                         let b = b.parse().ok()?;
                         Some((a, b))
                     });
-                    let time_range: RangeAny<Time> = match (query.start, query.end) {
+                    let start = query.start.as_ref().and_then(|s| parse_human_time(s));
+                    let end = query.end.as_ref().and_then(|s| parse_human_time(s));
+                    let time_range: RangeAny<Time> = match (start, end) {
                         (None, None) => (..).into(),
                         (Some(start), None) => (start..).into(),
                         (Some(start), Some(end)) => (start..=end).into(),
@@ -145,8 +139,8 @@ async fn main() {
     #[derive(Deserialize)]
     struct ChartQuery {
         pub keys: String,
-        pub start: Option<Time>,
-        pub end: Option<Time>,
+        pub start: Option<String>,
+        pub end: Option<String>,
         pub y_range: Option<String>,
     }
 
@@ -176,4 +170,34 @@ async fn main() {
     println!("- mem: <http://127.0.0.1:3000/?keys=mem.free,mem.available,mem.used,mem.total>");
     println!("- swap: <http://127.0.0.1:3000/?keys=swap.free,swap.used,swap.total>");
     Server::new(listener).run(app).await.unwrap();
+}
+
+fn system_time_timestamp(sys_time: SystemTime) -> u64 {
+    u64::try_from(sys_time.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap()
+}
+
+fn parse_human_time(s: &str) -> Option<Time> {
+    let s = s.trim();
+    let (s, shift) = match s.as_bytes().first()? {
+        b'+' => (s.trim_start_matches('+').trim_start(), Some(1)),
+        b'-' => (s.trim_start_matches('-').trim_start(), Some(-1)),
+        _ => (s, None),
+    };
+    let time = match shift {
+        Some(shift) => {
+            let d = humantime::parse_duration(s).ok()?;
+            let now = SystemTime::now();
+            let time = match shift {
+                1 => now.checked_add(d)?,
+                -1 => now.checked_sub(d)?,
+                _ => unreachable!(),
+            };
+            system_time_timestamp(time)
+        }
+        None => humantime::parse_rfc3339_weak(s)
+            .ok()
+            .map(system_time_timestamp)
+            .or_else(|| s.parse().ok())?,
+    };
+    Some(time)
 }
