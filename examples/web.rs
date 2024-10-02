@@ -19,6 +19,15 @@ use serde::Deserialize;
 async fn main() {
     let mut metric_buf_readers = MetricBufReaders::new();
     let cpu_metrics = metric_buf_readers.new_metrics("cpu".into());
+    let mem_metrics = metric_buf_readers.new_metrics("mem".into());
+    let swap_metrics = metric_buf_readers.new_metrics("swap".into());
+    let mem_used_metrics = metric_buf_readers.new_metrics("mem.used".into());
+    let mem_total_metrics = metric_buf_readers.new_metrics("mem.total".into());
+    let mem_free_metrics = metric_buf_readers.new_metrics("mem.free".into());
+    let mem_available_metrics = metric_buf_readers.new_metrics("mem.available".into());
+    let swap_used_metrics = metric_buf_readers.new_metrics("swap.used".into());
+    let swap_total_metrics = metric_buf_readers.new_metrics("swap.total".into());
+    let swap_free_metrics = metric_buf_readers.new_metrics("swap.free".into());
     std::thread::spawn(move || {
         let now = || {
             u64::try_from(
@@ -33,12 +42,47 @@ async fn main() {
         loop {
             std::thread::sleep(Duration::from_secs(1));
             sys.refresh_all();
-            let cpu = sys.global_cpu_usage() as f64 / 100.;
-            let s = cpu_metrics.try_push(Sample {
-                time: now(),
-                value: cpu,
+            let now = now();
+            cpu_metrics.try_push(Sample {
+                time: now,
+                value: sys.global_cpu_usage() as f64 / 100.,
             });
-            assert!(s);
+            mem_metrics.try_push(Sample {
+                time: now,
+                value: sys.used_memory() as f64 / sys.total_memory() as f64,
+            });
+            swap_metrics.try_push(Sample {
+                time: now,
+                value: sys.used_swap() as f64 / sys.total_swap() as f64,
+            });
+            mem_free_metrics.try_push(Sample {
+                time: now,
+                value: sys.free_memory() as f64,
+            });
+            mem_available_metrics.try_push(Sample {
+                time: now,
+                value: sys.available_memory() as f64,
+            });
+            mem_total_metrics.try_push(Sample {
+                time: now,
+                value: sys.total_memory() as f64,
+            });
+            mem_used_metrics.try_push(Sample {
+                time: now,
+                value: sys.used_memory() as f64,
+            });
+            swap_used_metrics.try_push(Sample {
+                time: now,
+                value: sys.used_swap() as f64,
+            });
+            swap_total_metrics.try_push(Sample {
+                time: now,
+                value: sys.total_swap() as f64,
+            });
+            swap_free_metrics.try_push(Sample {
+                time: now,
+                value: sys.free_swap() as f64,
+            });
         }
     });
     let mut exporter = InProcessExporter::new(metric_buf_readers);
@@ -63,28 +107,25 @@ async fn main() {
         let flush_interval = Duration::from_secs(1);
         loop {
             tokio::select! {
-                () = tokio::time::sleep(flush_interval) => {
-                    exporter.flush(&mut consumer).await;
-                }
-                Some(msg) = rx.recv() => {
-                    match msg {
-                        ConsumerMessage::Chart(query, resp) => {
-                            let keys = query.keys.split(',');
-                            let html = match (query.start, query.end) {
-                                (None, None) => consumer.scatter_chart_html(keys, .., None).await,
-                                (Some(start), None) => {
-                                    consumer.scatter_chart_html(keys, start.., None).await
-                                }
-                                (Some(start), Some(end)) => {
-                                    consumer.scatter_chart_html(keys, start..=end, None).await
-                                }
-                                (None, Some(end)) => {
-                                    consumer.scatter_chart_html(keys, ..=end, None).await
-                                }
-                            };
-                            resp.send(html).unwrap();
+                () = tokio::time::sleep(flush_interval) => exporter.flush(&mut consumer).await,
+                Some(msg) = rx.recv() => handle_msg(msg, &consumer).await,
+            }
+        }
+        async fn handle_msg(msg: ConsumerMessage, consumer: &MetricConsumer) {
+            match msg {
+                ConsumerMessage::Chart(query, resp) => {
+                    let keys = query.keys.split(',');
+                    let html = match (query.start, query.end) {
+                        (None, None) => consumer.scatter_chart_html(keys, .., None).await,
+                        (Some(start), None) => {
+                            consumer.scatter_chart_html(keys, start.., None).await
                         }
-                    }
+                        (Some(start), Some(end)) => {
+                            consumer.scatter_chart_html(keys, start..=end, None).await
+                        }
+                        (None, Some(end)) => consumer.scatter_chart_html(keys, ..=end, None).await,
+                    };
+                    resp.send(html).unwrap();
                 }
             }
         }
@@ -124,6 +165,8 @@ async fn main() {
 
     let listener = poem::listener::TcpListener::bind("0.0.0.0:3000");
     println!("- a: <http://127.0.0.1:3000/?keys=a&start=0&end=15>");
-    println!("- cpu: <http://127.0.0.1:3000/?keys=cpu>");
+    println!("- usage: <http://127.0.0.1:3000/?keys=cpu,mem,swap>");
+    println!("- mem: <http://127.0.0.1:3000/?keys=mem.free,mem.available,mem.used,mem.total>");
+    println!("- swap: <http://127.0.0.1:3000/?keys=swap.free,swap.used,swap.total>");
     Server::new(listener).run(app).await.unwrap();
 }
