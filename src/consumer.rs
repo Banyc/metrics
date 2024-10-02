@@ -1,9 +1,14 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    mem::MaybeUninit,
+};
 
 use plotly::{layout::Axis, Layout, Plot, Scatter};
-use primitive::map::hash_map::HashMapExt;
+use primitive::{iter::Chunks, map::hash_map::HashMapExt};
 
 use crate::{MetricKey, Sample, Time};
+
+const MAX_DISPLAY_DATA_POINTS: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct MetricConsumer {
@@ -34,16 +39,37 @@ impl MetricConsumer {
         range: impl core::ops::RangeBounds<Time> + Clone,
         div_id: Option<&str>,
     ) -> String {
-        let mut traces = vec![];
+        let mut data_point_count = 0;
+        let mut data_sets = vec![];
         for key in keys {
-            let key: &str = key.as_ref();
-            let Some(queue) = self.metrics.get(key) else {
+            let Some(queue) = self.metrics.get(key.as_ref()) else {
                 continue;
             };
             let (a, b) = queue.span(range.clone());
+            let len = a.len() + b.len();
+            if len == 0 {
+                continue;
+            }
+            data_point_count += len;
             let x = a.iter().chain(b).map(|x| x.time);
             let y = a.iter().chain(b).map(|x| x.value);
-            let trace = Scatter::new(x.collect(), y.collect()).name(key);
+            data_sets.push((key, x, y));
+            tokio::task::yield_now().await;
+        }
+        let mut traces = vec![];
+        let chunk_size = data_point_count.div_ceil(MAX_DISPLAY_DATA_POINTS);
+        let mut tmp_x_tray = vec![MaybeUninit::uninit(); chunk_size];
+        let mut tmp_y_tray = vec![MaybeUninit::uninit(); chunk_size];
+        for (key, x, y) in data_sets {
+            let mut reduced_x = vec![];
+            x.chunks(&mut tmp_x_tray, |tray| {
+                reduced_x.push(tray.last().copied().unwrap())
+            });
+            let mut reduced_y = vec![];
+            y.chunks(&mut tmp_y_tray, |tray| {
+                reduced_y.push(tray.last().copied().unwrap())
+            });
+            let trace = Scatter::new(reduced_x, reduced_y).name(key);
             traces.push(trace);
             tokio::task::yield_now().await;
         }
