@@ -13,7 +13,11 @@ use poem::{
     web::{Data, Html, Query},
     EndpointExt, Route, Server,
 };
-use primitive::range::RangeAny;
+use primitive::ops::{
+    diff::{Diff, DiffExt},
+    range::RangeAny,
+    wrap::{Map, TransposeOption, TransposeResult},
+};
 use serde::Deserialize;
 
 #[tokio::main]
@@ -114,8 +118,9 @@ async fn main() {
                         let b = b.parse().ok()?;
                         Some((a, b))
                     });
-                    let start = query.start.as_ref().and_then(|s| parse_human_time(s));
-                    let end = query.end.as_ref().and_then(|s| parse_human_time(s));
+                    let zone = query.zone_offset.as_deref();
+                    let start = query.start.as_ref().and_then(|s| parse_human_time(s, zone));
+                    let end = query.end.as_ref().and_then(|s| parse_human_time(s, zone));
                     let time_range: RangeAny<Time> = match (start, end) {
                         (None, None) => (..).into(),
                         (Some(start), None) => (start..).into(),
@@ -141,6 +146,7 @@ async fn main() {
         pub keys: String,
         pub start: Option<String>,
         pub end: Option<String>,
+        pub zone_offset: Option<String>,
         pub y_range: Option<String>,
     }
 
@@ -175,29 +181,39 @@ async fn main() {
 fn system_time_timestamp(sys_time: SystemTime) -> u64 {
     u64::try_from(sys_time.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap()
 }
+fn duration_timestamp_diff(diff: Diff<Duration>) -> Option<Diff<u64>> {
+    diff.map(|x| u64::try_from(x.as_millis()))
+        .transpose_result()
+        .ok()
+}
 
-fn parse_human_time(s: &str) -> Option<Time> {
+fn parse_human_duration_diff(s: &str) -> Option<Diff<Duration>> {
     let s = s.trim();
-    let (s, shift) = match s.as_bytes().first()? {
-        b'+' => (s.trim_start_matches('+').trim_start(), Some(1)),
-        b'-' => (s.trim_start_matches('-').trim_start(), Some(-1)),
-        _ => (s, None),
+    let diff = match s.as_bytes().first()? {
+        b'+' => Diff::Pos(s.trim_start_matches('+').trim_start()),
+        b'-' => Diff::Neg(s.trim_start_matches('-').trim_start()),
+        _ => Diff::Pos(s),
     };
-    let time = match shift {
-        Some(shift) => {
-            let d = humantime::parse_duration(s).ok()?;
-            let now = SystemTime::now();
-            let time = match shift {
-                1 => now.checked_add(d)?,
-                -1 => now.checked_sub(d)?,
-                _ => unreachable!(),
-            };
-            system_time_timestamp(time)
-        }
-        None => humantime::parse_rfc3339_weak(s)
-            .ok()
-            .map(system_time_timestamp)
-            .or_else(|| s.parse().ok())?,
-    };
-    Some(time)
+    diff.map(|s| humantime::parse_duration(s).ok())
+        .transpose_option()
+}
+fn parse_human_time(s: &str, zone_offset: Option<&str>) -> Option<Time> {
+    if let Some(diff) = parse_human_duration_diff(s) {
+        let now = SystemTime::now();
+        let diff = duration_timestamp_diff(diff)?;
+        let time = system_time_timestamp(now);
+        return time.add_diff(diff);
+    }
+    let zone_offset = zone_offset
+        .and_then(parse_human_duration_diff)
+        .and_then(duration_timestamp_diff);
+    let utc = humantime::parse_rfc3339_weak(s)
+        .ok()
+        .map(system_time_timestamp);
+    let zoned = utc.and_then(|utc| {
+        zone_offset
+            .map(|z| utc.add_diff(z.flip()))
+            .unwrap_or(Some(utc))
+    });
+    zoned.or_else(|| s.parse().ok())
 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use primitive::{
-    dyn_ref::DynRef,
+    ops::dyn_ref::DynRef,
     sync::spmc::{MpmcQueue, MpmcQueueReader},
 };
 
