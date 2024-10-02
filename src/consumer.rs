@@ -123,9 +123,10 @@ impl MetricQueue {
                     std::ops::Bound::Excluded(&start) => start < sample.time,
                     std::ops::Bound::Unbounded => unreachable!(),
                 });
-                if let Some(pos) = pos {
-                    *slice = &slice[pos..];
-                }
+                *slice = match pos {
+                    Some(pos) => &slice[pos..],
+                    None => &[],
+                };
             }
             let end = range.end_bound();
             if end != core::ops::Bound::Unbounded {
@@ -134,9 +135,10 @@ impl MetricQueue {
                     std::ops::Bound::Excluded(&end) => sample.time < end,
                     std::ops::Bound::Unbounded => unreachable!(),
                 });
-                if let Some(pos) = pos {
-                    *slice = &slice[..slice.len() - pos];
-                }
+                *slice = match pos {
+                    Some(pos) => &slice[..slice.len() - pos],
+                    None => &[],
+                };
             }
         }
         (slices[0], slices[1])
