@@ -29,13 +29,14 @@ async fn main() {
             )
             .unwrap()
         };
-        let sys = sysinfo::System::new_all();
+        let mut sys = sysinfo::System::new_all();
         loop {
             std::thread::sleep(Duration::from_secs(1));
-            let cpu = sys.global_cpu_usage();
+            sys.refresh_all();
+            let cpu = sys.global_cpu_usage() as f64 / 100.;
             let s = cpu_metrics.try_push(Sample {
                 time: now(),
-                value: cpu as f64,
+                value: cpu,
             });
             assert!(s);
         }
