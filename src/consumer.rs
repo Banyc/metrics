@@ -39,7 +39,8 @@ impl MetricConsumer {
     pub async fn scatter_chart_html(
         &self,
         keys: impl Iterator<Item = impl AsRef<str>>,
-        range: impl core::ops::RangeBounds<Time> + Clone,
+        time_range: impl core::ops::RangeBounds<Time> + Clone,
+        value_range: Option<(f64, f64)>,
         div_id: Option<&str>,
     ) -> String {
         let mut data_point_count = 0;
@@ -48,7 +49,7 @@ impl MetricConsumer {
             let Some(queue) = self.metrics.get(key.as_ref()) else {
                 continue;
             };
-            let (a, b) = queue.span(range.clone());
+            let (a, b) = queue.span(time_range.clone());
             let len = a.len() + b.len();
             if len == 0 {
                 continue;
@@ -80,9 +81,14 @@ impl MetricConsumer {
         for trace in traces {
             plot.add_trace(trace);
         }
+        let y = Axis::default().title("value");
+        let y = match value_range {
+            Some(range) => y.range(vec![range.0, range.1]),
+            None => y,
+        };
         let layout = Layout::default()
             .x_axis(Axis::default().title("time").type_(AxisType::Date))
-            .y_axis(Axis::default().title("value"));
+            .y_axis(y);
         plot.set_layout(layout);
         plot.to_inline_html(div_id)
     }

@@ -13,6 +13,7 @@ use poem::{
     web::{Data, Html, Query},
     EndpointExt, Route, Server,
 };
+use primitive::range::RangeAny;
 use serde::Deserialize;
 
 #[tokio::main]
@@ -115,16 +116,21 @@ async fn main() {
             match msg {
                 ConsumerMessage::Chart(query, resp) => {
                     let keys = query.keys.split(',');
-                    let html = match (query.start, query.end) {
-                        (None, None) => consumer.scatter_chart_html(keys, .., None).await,
-                        (Some(start), None) => {
-                            consumer.scatter_chart_html(keys, start.., None).await
-                        }
-                        (Some(start), Some(end)) => {
-                            consumer.scatter_chart_html(keys, start..=end, None).await
-                        }
-                        (None, Some(end)) => consumer.scatter_chart_html(keys, ..=end, None).await,
+                    let y_range = query.y_range.and_then(|s| {
+                        let (a, b) = s.split_once(',')?;
+                        let a = a.parse().ok()?;
+                        let b = b.parse().ok()?;
+                        Some((a, b))
+                    });
+                    let time_range: RangeAny<Time> = match (query.start, query.end) {
+                        (None, None) => (..).into(),
+                        (Some(start), None) => (start..).into(),
+                        (Some(start), Some(end)) => (start..=end).into(),
+                        (None, Some(end)) => (..=end).into(),
                     };
+                    let html = consumer
+                        .scatter_chart_html(keys, time_range, y_range, None)
+                        .await;
                     resp.send(html).unwrap();
                 }
             }
@@ -141,6 +147,7 @@ async fn main() {
         pub keys: String,
         pub start: Option<Time>,
         pub end: Option<Time>,
+        pub y_range: Option<String>,
     }
 
     #[handler]
@@ -165,7 +172,7 @@ async fn main() {
 
     let listener = poem::listener::TcpListener::bind("0.0.0.0:3000");
     println!("- a: <http://127.0.0.1:3000/?keys=a&start=0&end=15>");
-    println!("- usage: <http://127.0.0.1:3000/?keys=cpu,mem,swap>");
+    println!("- usage: <http://127.0.0.1:3000/?y_range=0,1&keys=cpu,mem,swap>");
     println!("- mem: <http://127.0.0.1:3000/?keys=mem.free,mem.available,mem.used,mem.total>");
     println!("- swap: <http://127.0.0.1:3000/?keys=swap.free,swap.used,swap.total>");
     Server::new(listener).run(app).await.unwrap();
