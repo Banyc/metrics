@@ -93,20 +93,15 @@ where
 #[derive(Debug)]
 pub struct InProcessExporter {
     readers: MetricBufReaders,
-    consumer: MetricConsumer,
 }
 impl InProcessExporter {
-    pub fn new(readers: MetricBufReaders, queue_size: usize) -> Self {
-        let consumer = MetricConsumer::new(queue_size);
-        Self { readers, consumer }
+    pub fn new(readers: MetricBufReaders) -> Self {
+        Self { readers }
     }
 
-    pub fn consumer(&self) -> &MetricConsumer {
-        &self.consumer
-    }
-    pub async fn flush(&mut self) {
+    pub async fn flush(&mut self, consumer: &mut MetricConsumer) {
         for (key, reader) in self.readers.readers_mut() {
-            let mut queue = self.consumer.push(key);
+            let mut queue = consumer.push(key);
             for _ in 0..BUF_SIZE {
                 let Some(sample) = reader.pop() else {
                     break;
