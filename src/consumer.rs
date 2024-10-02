@@ -3,7 +3,10 @@ use std::{
     mem::MaybeUninit,
 };
 
-use plotly::{layout::Axis, Layout, Plot, Scatter};
+use plotly::{
+    layout::{Axis, AxisType},
+    Layout, Plot, Scatter,
+};
 use primitive::{iter::Chunks, map::hash_map::HashMapExt};
 
 use crate::{MetricKey, Sample, Time};
@@ -78,7 +81,7 @@ impl MetricConsumer {
             plot.add_trace(trace);
         }
         let layout = Layout::default()
-            .x_axis(Axis::default().title("time"))
+            .x_axis(Axis::default().title("time").type_(AxisType::Date))
             .y_axis(Axis::default().title("value"));
         plot.set_layout(layout);
         plot.to_inline_html(div_id)
@@ -123,7 +126,7 @@ impl MetricQueue {
                 let pos = slice.iter().rev().position(|sample| match end {
                     std::ops::Bound::Included(&end) => sample.time <= end,
                     std::ops::Bound::Excluded(&end) => sample.time < end,
-                    std::ops::Bound::Unbounded => todo!(),
+                    std::ops::Bound::Unbounded => unreachable!(),
                 });
                 if let Some(pos) = pos {
                     *slice = &slice[..slice.len() - pos];
