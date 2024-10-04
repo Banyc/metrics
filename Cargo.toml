@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 plotly = "0.10"
-primitive = { git = "https://github.com/Banyc/primitive.git", tag = "v0.0.23" }
+primitive = { git = "https://github.com/Banyc/primitive.git", tag = "v0.0.24" }
 tokio = { version = "1", features = ["full"] }
 ureq = "2"
 

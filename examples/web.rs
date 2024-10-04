@@ -199,9 +199,8 @@ fn parse_human_duration_diff(s: &str) -> Option<Diff<Duration>> {
 }
 fn parse_human_time(s: &str, zone_offset: Option<&str>) -> Option<Time> {
     if let Some(diff) = parse_human_duration_diff(s) {
-        let now = SystemTime::now();
+        let time = system_time_timestamp(SystemTime::now());
         let diff = duration_timestamp_diff(diff)?;
-        let time = system_time_timestamp(now);
         return time.add_diff(diff);
     }
     let zone_offset = zone_offset
