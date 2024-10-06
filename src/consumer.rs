@@ -1,21 +1,14 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    mem::MaybeUninit,
-};
+use std::collections::{HashMap, VecDeque};
 
-use plotly::{
-    layout::{Axis, AxisType},
-    Layout, Plot, Scatter,
-};
-use primitive::{iter::Chunks, map::hash_map::HashMapExt};
+use primitive::map::hash_map::HashMapExt;
 
 use crate::{MetricKey, Sample, Time};
 
-const MAX_DISPLAY_DATA_POINTS: usize = 1024;
+pub type MetricQueues = HashMap<MetricKey, MetricQueue>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MetricConsumer {
-    metrics: HashMap<MetricKey, MetricQueue>,
+    metrics: MetricQueues,
     queue_size: usize,
 }
 impl MetricConsumer {
@@ -32,65 +25,8 @@ impl MetricConsumer {
             queue.push(sample, self.queue_size);
         }
     }
-    pub fn metrics(&self) -> &HashMap<MetricKey, MetricQueue> {
+    pub fn metrics(&self) -> &MetricQueues {
         &self.metrics
-    }
-
-    pub async fn scatter_chart_html(
-        &self,
-        keys: impl Iterator<Item = impl AsRef<str>>,
-        time_range: impl core::ops::RangeBounds<Time> + Clone,
-        value_range: Option<(f64, f64)>,
-        div_id: Option<&str>,
-    ) -> String {
-        let mut data_point_count = 0;
-        let mut data_sets = vec![];
-        for key in keys {
-            let Some(queue) = self.metrics.get(key.as_ref()) else {
-                continue;
-            };
-            let (a, b) = queue.span(time_range.clone());
-            let len = a.len() + b.len();
-            if len == 0 {
-                continue;
-            }
-            data_point_count += len;
-            let x = a.iter().chain(b).map(|x| x.time);
-            let y = a.iter().chain(b).map(|x| x.value);
-            data_sets.push((key, x, y));
-            tokio::task::yield_now().await;
-        }
-        let mut traces = vec![];
-        let chunk_size = data_point_count.div_ceil(MAX_DISPLAY_DATA_POINTS);
-        let mut tmp_x_tray = vec![MaybeUninit::uninit(); chunk_size];
-        let mut tmp_y_tray = vec![MaybeUninit::uninit(); chunk_size];
-        for (key, x, y) in data_sets {
-            let mut reduced_x = vec![];
-            x.chunks(&mut tmp_x_tray, |tray| {
-                reduced_x.push(tray.last().copied().unwrap())
-            });
-            let mut reduced_y = vec![];
-            y.chunks(&mut tmp_y_tray, |tray| {
-                reduced_y.push(tray.last().copied().unwrap())
-            });
-            let trace = Scatter::new(reduced_x, reduced_y).name(key);
-            traces.push(trace);
-            tokio::task::yield_now().await;
-        }
-        let mut plot = Plot::new();
-        for trace in traces {
-            plot.add_trace(trace);
-        }
-        let y = Axis::default().title("value");
-        let y = match value_range {
-            Some(range) => y.range(vec![range.0, range.1]),
-            None => y,
-        };
-        let layout = Layout::default()
-            .x_axis(Axis::default().title("time").type_(AxisType::Date))
-            .y_axis(y);
-        plot.set_layout(layout);
-        plot.to_inline_html(div_id)
     }
 }
 
@@ -147,5 +83,27 @@ impl MetricQueue {
 impl Default for MetricQueue {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub trait TimeSeries {
+    fn span(&self, time_range: impl core::ops::RangeBounds<Time>) -> Option<TimeSeriesSpan<'_>>;
+}
+pub struct TimeSeriesSpan<'a> {
+    pub x: Box<dyn Iterator<Item = Time> + Send + 'a>,
+    pub y: Box<dyn Iterator<Item = f64> + Send + 'a>,
+    pub n: usize,
+}
+impl TimeSeries for MetricQueue {
+    fn span(&self, time_range: impl core::ops::RangeBounds<Time>) -> Option<TimeSeriesSpan<'_>> {
+        let (a, b) = self.span(time_range);
+        let n = a.len() + b.len();
+        let x = a.iter().chain(b).map(|x| x.time);
+        let y = a.iter().chain(b).map(|x| x.value);
+        Some(TimeSeriesSpan {
+            x: Box::new(x),
+            y: Box::new(y),
+            n,
+        })
     }
 }

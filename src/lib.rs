@@ -2,6 +2,7 @@ pub mod buf;
 pub mod codec;
 pub mod consumer;
 pub mod exporter;
+pub mod view;
 
 pub type MetricKey = String;
 pub type Time = u64;
