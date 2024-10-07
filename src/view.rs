@@ -22,6 +22,23 @@ pub trait MetricSynthesis: core::fmt::Debug + Sync + Send {
 }
 pub type MetricSyntheses = HashMap<MetricKey, Box<dyn MetricSynthesis>>;
 
+pub fn metric_span<'a>(
+    metrics: &'a MetricQueues,
+    syntheses: &'a MetricSyntheses,
+    key: &str,
+    time_range: impl core::ops::RangeBounds<Time> + Clone,
+) -> Option<TimeSeriesSpan<'a>> {
+    let queue = metrics.get(key);
+    let synthesis = syntheses.get(key);
+    match (queue, synthesis) {
+        (Some(queue), _) => TimeSeries::span(queue, time_range.clone()),
+        (None, Some(synthesis)) => {
+            synthesis.span(metrics, RangeAny::from_range(time_range.clone()))
+        }
+        (None, None) => None,
+    }
+}
+
 pub async fn scatter_chart_html(
     metrics: &MetricQueues,
     syntheses: &MetricSyntheses,
@@ -33,15 +50,7 @@ pub async fn scatter_chart_html(
     let mut data_point_count = 0;
     let mut data_sets = vec![];
     for key in keys {
-        let queue = metrics.get(key.as_ref());
-        let synthesis = syntheses.get(key.as_ref());
-        let span = match (queue, synthesis) {
-            (Some(queue), _) => TimeSeries::span(queue, time_range.clone()),
-            (None, Some(synthesis)) => {
-                synthesis.span(metrics, RangeAny::from_range(time_range.clone()))
-            }
-            (None, None) => continue,
-        };
+        let span = metric_span(metrics, syntheses, key.as_ref(), time_range.clone());
         let Some(span) = span else {
             continue;
         };

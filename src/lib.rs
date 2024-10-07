@@ -1,3 +1,4 @@
+pub mod alert;
 pub mod buf;
 pub mod codec;
 pub mod consumer;
