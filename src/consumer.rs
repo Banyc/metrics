@@ -6,7 +6,7 @@ use crate::{MetricKey, Sample, Time};
 
 pub type MetricQueues = HashMap<MetricKey, MetricQueue>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MetricConsumer {
     metrics: MetricQueues,
     queue_size: usize,

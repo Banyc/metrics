@@ -37,3 +37,11 @@ impl MetricAlerter {
         Some(tripped)
     }
 }
+impl core::fmt::Debug for MetricAlerter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MetricAlerter")
+            .field("from", &self.from)
+            .field("key", &self.key)
+            .finish()
+    }
+}
