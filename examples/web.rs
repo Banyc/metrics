@@ -7,7 +7,7 @@ use std::{
 use hyped::*;
 use metrics::{
     buf::MetricBufReaders, consumer::MetricConsumer, exporter::InProcessExporter,
-    view::MetricViewer, Sample, Time,
+    view::scatter_chart_html, Sample, Time,
 };
 use poem::{
     get, handler,
@@ -86,7 +86,6 @@ async fn main() {
     });
     let mut exporter = InProcessExporter::new(metric_buf_readers);
 
-    let viewer = MetricViewer::new(HashMap::new());
     let mut consumer = MetricConsumer::new(1024);
     let key = String::from("a");
     {
@@ -108,14 +107,10 @@ async fn main() {
         loop {
             tokio::select! {
                 () = tokio::time::sleep(flush_interval) => exporter.flush(&mut consumer).await,
-                Some(msg) = rx.recv() => handle_msg(msg, &consumer, &viewer).await,
+                Some(msg) = rx.recv() => handle_msg(msg, &consumer).await,
             }
         }
-        async fn handle_msg(
-            msg: ConsumerMessage,
-            consumer: &MetricConsumer,
-            viewer: &MetricViewer,
-        ) {
+        async fn handle_msg(msg: ConsumerMessage, consumer: &MetricConsumer) {
             match msg {
                 ConsumerMessage::Chart(query, resp) => {
                     let keys = query.keys.split(',');
@@ -134,9 +129,15 @@ async fn main() {
                         (Some(start), Some(end)) => (start..=end).into(),
                         (None, Some(end)) => (..=end).into(),
                     };
-                    let html = viewer
-                        .scatter_chart_html(consumer.metrics(), keys, time_range, y_range, None)
-                        .await;
+                    let html = scatter_chart_html(
+                        consumer.metrics(),
+                        &HashMap::new(),
+                        keys,
+                        time_range,
+                        y_range,
+                        None,
+                    )
+                    .await;
                     resp.send(html).unwrap();
                 }
             }
