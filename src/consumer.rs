@@ -90,20 +90,17 @@ pub trait TimeSeries {
     fn span(&self, time_range: impl core::ops::RangeBounds<Time>) -> Option<TimeSeriesSpan<'_>>;
 }
 pub struct TimeSeriesSpan<'a> {
-    pub x: Box<dyn Iterator<Item = Time> + Send + 'a>,
-    pub y: Box<dyn Iterator<Item = f64> + Send + 'a>,
-    pub n: usize,
+    pub samples: Box<dyn Iterator<Item = Sample> + Send + 'a>,
+    pub count: usize,
 }
 impl TimeSeries for MetricQueue {
     fn span(&self, time_range: impl core::ops::RangeBounds<Time>) -> Option<TimeSeriesSpan<'_>> {
         let (a, b) = self.span(time_range);
         let n = a.len() + b.len();
-        let x = a.iter().chain(b).map(|x| x.time);
-        let y = a.iter().chain(b).map(|x| x.value);
+        let samples = a.iter().chain(b).copied();
         Some(TimeSeriesSpan {
-            x: Box::new(x),
-            y: Box::new(y),
-            n,
+            samples: Box::new(samples),
+            count: n,
         })
     }
 }

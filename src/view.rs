@@ -20,10 +20,11 @@ pub trait MetricSynthesis: core::fmt::Debug + Sync + Send {
         time_range: RangeAny<Time>,
     ) -> Option<TimeSeriesSpan<'_>>;
 }
+pub type MetricSyntheses = HashMap<MetricKey, Box<dyn MetricSynthesis>>;
 
 pub async fn scatter_chart_html(
     metrics: &MetricQueues,
-    syntheses: &HashMap<MetricKey, Box<dyn MetricSynthesis>>,
+    syntheses: &MetricSyntheses,
     keys: impl Iterator<Item = impl AsRef<str>>,
     time_range: impl core::ops::RangeBounds<Time> + Clone,
     value_range: Option<(f64, f64)>,
@@ -44,25 +45,22 @@ pub async fn scatter_chart_html(
         let Some(span) = span else {
             continue;
         };
-        if span.n == 0 {
+        if span.count == 0 {
             continue;
         }
-        data_point_count += span.n;
-        data_sets.push((key, span.x, span.y));
+        data_point_count += span.count;
+        data_sets.push((key, span));
         tokio::task::yield_now().await;
     }
     let mut traces = vec![];
     let chunk_size = data_point_count.div_ceil(MAX_DISPLAY_DATA_POINTS);
-    let mut tmp_x_tray = vec![MaybeUninit::uninit(); chunk_size];
-    let mut tmp_y_tray = vec![MaybeUninit::uninit(); chunk_size];
-    for (key, x, y) in data_sets {
+    let mut tmp_tray = vec![MaybeUninit::uninit(); chunk_size];
+    for (key, span) in data_sets {
         let mut reduced_x = vec![];
-        x.chunks(&mut tmp_x_tray, |tray| {
-            reduced_x.push(tray.last().copied().unwrap())
-        });
         let mut reduced_y = vec![];
-        y.chunks(&mut tmp_y_tray, |tray| {
-            reduced_y.push(tray.last().copied().unwrap())
+        span.samples.chunks(&mut tmp_tray, |tray| {
+            reduced_x.push(tray.last().unwrap().time);
+            reduced_y.push(tray.last().unwrap().value);
         });
         let trace = Scatter::new(reduced_x, reduced_y).name(key);
         traces.push(trace);
