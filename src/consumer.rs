@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use primitive::map::hash_map::HashMapExt;
+use primitive::map::hash_map::HashEnsure;
 
 use crate::{MetricKey, Sample, Time};
 

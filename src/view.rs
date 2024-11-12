@@ -4,7 +4,7 @@ use plotly::{
     layout::{Axis, AxisType},
     Layout, Plot, Scatter,
 };
-use primitive::{iter::Chunks, ops::range::RangeAny};
+use primitive::{iter::chunk::Chunks, ops::range::RangeAny};
 
 use crate::{
     consumer::{MetricQueues, TimeSeries, TimeSeriesSpan},
